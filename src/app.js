@@ -239,6 +239,17 @@ let giantEye = null;             // giant eye for dark/horror moods
 let butterflySprites = [];       // light butterflies for hopeful mood
 let orbitalSatellites = [];      // small satellites orbiting the globe
 
+// Quantum Particle Field (arrival background)
+let qpfParticleCount = 0;
+let qpfPositions = null;   // Float32Array
+let qpfVelocities = null;  // Float32Array
+let qpfGeometry = null;    // THREE.BufferGeometry for points
+let qpfPoints = null;      // THREE.Points
+let qpfLineGeometry = null; // THREE.BufferGeometry for lines
+let qpfLineMesh = null;     // THREE.LineSegments
+let qpfLinePositions = null; // Float32Array for line vertices
+let qpfMaxConnections = 0;  // max number of line segments
+
 // Initialize Socket.io client
 const socket = io('http://localhost:3000', {
   reconnectionDelay: 1000,
@@ -383,19 +394,61 @@ function initializeArrival() {
   appState.phase = 'arrival';
   console.log('→ Phase 1: ARRIVAL');
 
-  // Dark void with 2,000 drifting particles
-  const geometry = new THREE.BufferGeometry();
-  const positions = new Float32Array(2000 * 3);
-  for (let i = 0; i < 2000 * 3; i += 3) {
-    positions[i] = (Math.random() - 0.5) * 2000;
-    positions[i + 1] = (Math.random() - 0.5) * 2000;
-    positions[i + 2] = (Math.random() - 0.5) * 2000;
+  // Quantum Particle Field: interactive galaxy-style background
+  // Choose particle count based on viewport size (simple responsive behavior)
+  const vw = window.innerWidth;
+  if (vw < 640) {
+    qpfParticleCount = 180;
+  } else if (vw < 1024) {
+    qpfParticleCount = 260;
+  } else {
+    qpfParticleCount = 340;
   }
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
-  const material = new THREE.PointsMaterial({ color: 0x00ffff, size: 2 });
-  const particles = new THREE.Points(geometry, material);
-  scene.add(particles);
+  const area = 1600; // spread radius
+  qpfPositions = new Float32Array(qpfParticleCount * 3);
+  qpfVelocities = new Float32Array(qpfParticleCount * 3);
+
+  for (let i = 0; i < qpfParticleCount; i++) {
+    const i3 = i * 3;
+    qpfPositions[i3] = (Math.random() - 0.5) * area;
+    qpfPositions[i3 + 1] = (Math.random() - 0.5) * area * 0.6;
+    qpfPositions[i3 + 2] = (Math.random() - 0.5) * area;
+
+    // Small random drift velocity
+    qpfVelocities[i3] = (Math.random() - 0.5) * 0.08;
+    qpfVelocities[i3 + 1] = (Math.random() - 0.5) * 0.05;
+    qpfVelocities[i3 + 2] = (Math.random() - 0.5) * 0.08;
+  }
+
+  qpfGeometry = new THREE.BufferGeometry();
+  qpfGeometry.setAttribute('position', new THREE.BufferAttribute(qpfPositions, 3));
+
+  const qpfMaterial = new THREE.PointsMaterial({
+    color: 0x00ffff,
+    size: 2,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false
+  });
+  qpfPoints = new THREE.Points(qpfGeometry, qpfMaterial);
+  scene.add(qpfPoints);
+
+  // Line connections between close particles
+  const maxLinksPerParticle = 6;
+  qpfMaxConnections = qpfParticleCount * maxLinksPerParticle;
+  qpfLinePositions = new Float32Array(qpfMaxConnections * 3 * 2); // 2 vertices per segment
+  qpfLineGeometry = new THREE.BufferGeometry();
+  qpfLineGeometry.setAttribute('position', new THREE.BufferAttribute(qpfLinePositions, 3));
+
+  const lineMaterial = new THREE.LineBasicMaterial({
+    color: 0x0080ff,
+    transparent: true,
+    opacity: 0.4,
+    linewidth: 1
+  });
+  qpfLineMesh = new THREE.LineSegments(qpfLineGeometry, lineMaterial);
+  scene.add(qpfLineMesh);
 
   // ===== NEW: Beautiful 3D Components =====
   
@@ -2385,6 +2438,99 @@ function animate() {
     const translateX = nx * 40;
     const translateY = ny * 24;
     holo.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg) translate3d(${translateX}px, ${translateY}px, ${translateZ}px)`;
+  }
+
+   // Quantum Particle Field update: drift, mouse attraction, line connections
+  if (qpfGeometry && qpfPositions && qpfVelocities) {
+    const attractStrength = 0.0006;
+    const mouse = appState.cursorPos || { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    const mxNorm = (mouse.x / window.innerWidth - 0.5) * 2; // -1..1
+    const myNorm = (mouse.y / window.innerHeight - 0.5) * -2;
+
+    const targetX = mxNorm * 300;
+    const targetY = myNorm * 200;
+
+    // Update particle positions
+    for (let i = 0; i < qpfParticleCount; i++) {
+      const i3 = i * 3;
+
+      let x = qpfPositions[i3];
+      let y = qpfPositions[i3 + 1];
+      let z = qpfPositions[i3 + 2];
+
+      // Attraction toward mouse-projected point (in X/Y only)
+      const ax = (targetX - x) * attractStrength;
+      const ay = (targetY - y) * attractStrength;
+
+      qpfVelocities[i3] += ax;
+      qpfVelocities[i3 + 1] += ay;
+
+      // Apply velocity and mild damping
+      x += qpfVelocities[i3] * (deltaTime / 16);
+      y += qpfVelocities[i3 + 1] * (deltaTime / 16);
+      z += qpfVelocities[i3 + 2] * (deltaTime / 16);
+
+      qpfVelocities[i3] *= 0.995;
+      qpfVelocities[i3 + 1] *= 0.995;
+      qpfVelocities[i3 + 2] *= 0.995;
+
+      // Soft bounds to keep field around the scene
+      const limit = 1800;
+      if (x > limit || x < -limit) qpfVelocities[i3] *= -0.8;
+      if (z > limit || z < -limit) qpfVelocities[i3 + 2] *= -0.8;
+      if (y > limit * 0.6 || y < -limit * 0.6) qpfVelocities[i3 + 1] *= -0.8;
+
+      qpfPositions[i3] = x;
+      qpfPositions[i3 + 1] = y;
+      qpfPositions[i3 + 2] = z;
+    }
+
+    qpfGeometry.attributes.position.needsUpdate = true;
+
+    // Build line connections between close particles
+    if (qpfLineGeometry && qpfLinePositions) {
+      let lineIndex = 0;
+      const maxDistSq = 260 * 260;
+
+      for (let i = 0; i < qpfParticleCount; i++) {
+        const i3 = i * 3;
+        const ix = qpfPositions[i3];
+        const iy = qpfPositions[i3 + 1];
+        const iz = qpfPositions[i3 + 2];
+
+        let links = 0;
+        for (let j = i + 1; j < qpfParticleCount && links < 6; j++) {
+          const j3 = j * 3;
+          const jx = qpfPositions[j3];
+          const jy = qpfPositions[j3 + 1];
+          const jz = qpfPositions[j3 + 2];
+
+          const dx = ix - jx;
+          const dy = iy - jy;
+          const dz = iz - jz;
+          const distSq = dx * dx + dy * dy + dz * dz;
+          if (distSq < maxDistSq) {
+            if (lineIndex >= qpfMaxConnections * 2 * 3) break;
+            const stride = lineIndex * 3;
+            qpfLinePositions[stride] = ix;
+            qpfLinePositions[stride + 1] = iy;
+            qpfLinePositions[stride + 2] = iz;
+            qpfLinePositions[stride + 3] = jx;
+            qpfLinePositions[stride + 4] = jy;
+            qpfLinePositions[stride + 5] = jz;
+            lineIndex += 2;
+            links++;
+          }
+        }
+      }
+
+      // Clear any unused segments
+      for (let k = lineIndex * 3; k < qpfLinePositions.length; k++) {
+        qpfLinePositions[k] = 0;
+      }
+
+      qpfLineGeometry.attributes.position.needsUpdate = true;
+    }
   }
 
   // ===== Animate Beautiful 3D Components =====

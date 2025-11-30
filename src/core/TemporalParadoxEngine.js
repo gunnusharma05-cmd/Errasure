@@ -14,7 +14,7 @@ export class TemporalParadoxEngine {
     // Simple Markov chain for action prediction
     return {
       transitions: {},
-      confidence: 0.5
+      confidence: 0.5git add .
     };
   }
 
