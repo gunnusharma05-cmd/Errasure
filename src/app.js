@@ -238,17 +238,11 @@ let predictionOrbs = [];         // glowing orbs that appear on temporal predict
 let giantEye = null;             // giant eye for dark/horror moods
 let butterflySprites = [];       // light butterflies for hopeful mood
 let orbitalSatellites = [];      // small satellites orbiting the globe
-
-// Quantum Particle Field (arrival background)
-let qpfParticleCount = 0;
-let qpfPositions = null;   // Float32Array
-let qpfVelocities = null;  // Float32Array
-let qpfGeometry = null;    // THREE.BufferGeometry for points
-let qpfPoints = null;      // THREE.Points
-let qpfLineGeometry = null; // THREE.BufferGeometry for lines
-let qpfLineMesh = null;     // THREE.LineSegments
-let qpfLinePositions = null; // Float32Array for line vertices
-let qpfMaxConnections = 0;  // max number of line segments
+let landingQuantumCore = null;   // pulsing core shown only on first screen
+let landingMoodSpheres = [];     // 6 mood spheres for landing hero
+let landingRaycaster = new THREE.Raycaster();
+let landingMouseNDC = new THREE.Vector2();
+let landingHoveredSphere = null;
 
 // Initialize Socket.io client
 const socket = io('http://localhost:3000', {
@@ -394,61 +388,19 @@ function initializeArrival() {
   appState.phase = 'arrival';
   console.log('→ Phase 1: ARRIVAL');
 
-  // Quantum Particle Field: interactive galaxy-style background
-  // Choose particle count based on viewport size (simple responsive behavior)
-  const vw = window.innerWidth;
-  if (vw < 640) {
-    qpfParticleCount = 180;
-  } else if (vw < 1024) {
-    qpfParticleCount = 260;
-  } else {
-    qpfParticleCount = 340;
+  // Dark void with 2,000 drifting particles
+  const geometry = new THREE.BufferGeometry();
+  const positions = new Float32Array(2000 * 3);
+  for (let i = 0; i < 2000 * 3; i += 3) {
+    positions[i] = (Math.random() - 0.5) * 2000;
+    positions[i + 1] = (Math.random() - 0.5) * 2000;
+    positions[i + 2] = (Math.random() - 0.5) * 2000;
   }
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
-  const area = 1600; // spread radius
-  qpfPositions = new Float32Array(qpfParticleCount * 3);
-  qpfVelocities = new Float32Array(qpfParticleCount * 3);
-
-  for (let i = 0; i < qpfParticleCount; i++) {
-    const i3 = i * 3;
-    qpfPositions[i3] = (Math.random() - 0.5) * area;
-    qpfPositions[i3 + 1] = (Math.random() - 0.5) * area * 0.6;
-    qpfPositions[i3 + 2] = (Math.random() - 0.5) * area;
-
-    // Small random drift velocity
-    qpfVelocities[i3] = (Math.random() - 0.5) * 0.08;
-    qpfVelocities[i3 + 1] = (Math.random() - 0.5) * 0.05;
-    qpfVelocities[i3 + 2] = (Math.random() - 0.5) * 0.08;
-  }
-
-  qpfGeometry = new THREE.BufferGeometry();
-  qpfGeometry.setAttribute('position', new THREE.BufferAttribute(qpfPositions, 3));
-
-  const qpfMaterial = new THREE.PointsMaterial({
-    color: 0x00ffff,
-    size: 2,
-    transparent: true,
-    opacity: 0.9,
-    depthWrite: false
-  });
-  qpfPoints = new THREE.Points(qpfGeometry, qpfMaterial);
-  scene.add(qpfPoints);
-
-  // Line connections between close particles
-  const maxLinksPerParticle = 6;
-  qpfMaxConnections = qpfParticleCount * maxLinksPerParticle;
-  qpfLinePositions = new Float32Array(qpfMaxConnections * 3 * 2); // 2 vertices per segment
-  qpfLineGeometry = new THREE.BufferGeometry();
-  qpfLineGeometry.setAttribute('position', new THREE.BufferAttribute(qpfLinePositions, 3));
-
-  const lineMaterial = new THREE.LineBasicMaterial({
-    color: 0x0080ff,
-    transparent: true,
-    opacity: 0.4,
-    linewidth: 1
-  });
-  qpfLineMesh = new THREE.LineSegments(qpfLineGeometry, lineMaterial);
-  scene.add(qpfLineMesh);
+  const material = new THREE.PointsMaterial({ color: 0x00ffff, size: 2 });
+  const particles = new THREE.Points(geometry, material);
+  scene.add(particles);
 
   // ===== NEW: Beautiful 3D Components =====
   
@@ -534,6 +486,76 @@ function initializeArrival() {
    // Keep book slightly in front of the main cluster
   book.position.z = 100;
   scene.add(book);
+
+  // Landing-only Quantum Core: pulsing orb with rotating rings
+  landingQuantumCore = new THREE.Group();
+
+  const coreGeo = new THREE.SphereGeometry(40, 32, 32);
+  const coreMat = new THREE.MeshPhongMaterial({
+    color: 0x00ffff,
+    emissive: 0x0088ff,
+    emissiveIntensity: 1.0,
+    transparent: true,
+    opacity: 0.95
+  });
+  const coreSphere = new THREE.Mesh(coreGeo, coreMat);
+  landingQuantumCore.add(coreSphere);
+
+  const ringGeo = new THREE.TorusGeometry(70, 4, 16, 64);
+  const ringMat = new THREE.MeshPhongMaterial({
+    color: 0x00ffff,
+    emissive: 0x00ffff,
+    emissiveIntensity: 0.6,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.7
+  });
+  const ring1 = new THREE.Mesh(ringGeo, ringMat);
+  ring1.rotation.x = Math.PI / 4;
+  const ring2 = new THREE.Mesh(ringGeo, ringMat.clone());
+  ring2.rotation.y = Math.PI / 3;
+  landingQuantumCore.add(ring1);
+  landingQuantumCore.add(ring2);
+
+  landingQuantumCore.position.set(0, 0, 0);
+  landingQuantumCore.userData.baseScale = 1;
+  scene.add(landingQuantumCore);
+
+  // Landing-only Mood Spheres (one per story type, visual layer only)
+  landingMoodSpheres = [];
+  const moodDefs = [
+    { key: 'mystical', color: 0x9d4edd },   // purple stars
+    { key: 'dark',     color: 0x111111 },   // dark / almost black
+    { key: 'hopeful',  color: 0xffd700 },   // gold
+    { key: 'surreal',  color: 0xff00ff },   // magenta / rainbow later
+    { key: 'horror',   color: 0xff0044 },   // red veins
+    { key: 'random',   color: 0x00ffff }    // glitch/static mood
+  ];
+
+  const moodRadius = 280;
+  moodDefs.forEach((def, idx) => {
+    const sphereGeo = new THREE.SphereGeometry(36, 32, 32);
+    const sphereMat = new THREE.MeshPhongMaterial({
+      color: def.color,
+      emissive: def.color,
+      emissiveIntensity: 0.5,
+      transparent: true,
+      opacity: 0.95
+    });
+    const s = new THREE.Mesh(sphereGeo, sphereMat);
+    s.userData.moodKey = def.key;
+    s.userData.orbitRadius = moodRadius;
+    s.userData.orbitSpeed = 0.12 + idx * 0.02;
+    s.userData.baseScale = 1;
+    s.userData.angleOffset = (idx / moodDefs.length) * Math.PI * 2;
+    s.position.set(
+      Math.cos(s.userData.angleOffset) * moodRadius,
+      40,
+      Math.sin(s.userData.angleOffset) * moodRadius
+    );
+    scene.add(s);
+    landingMoodSpheres.push(s);
+  });
 
   // Add enhanced lighting for 3D effect
   const pointLight1 = new THREE.PointLight(0x00ffff, 2, 1000);
@@ -749,6 +771,14 @@ function transitionToReading() {
   const holoTitle = document.getElementById('holo-title');
   if (holoTitle) {
     holoTitle.style.display = 'none';
+  }
+  // Hide landing-only quantum core once we leave the first screen
+  if (landingQuantumCore) {
+    landingQuantumCore.visible = false;
+  }
+  // Hide landing mood spheres so they only appear on hero slide
+  if (landingMoodSpheres && landingMoodSpheres.length) {
+    landingMoodSpheres.forEach((s) => { s.visible = false; });
   }
   
   // Show mood selection modal
@@ -2440,97 +2470,51 @@ function animate() {
     holo.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg) translate3d(${translateX}px, ${translateY}px, ${translateZ}px)`;
   }
 
-   // Quantum Particle Field update: drift, mouse attraction, line connections
-  if (qpfGeometry && qpfPositions && qpfVelocities) {
-    const attractStrength = 0.0006;
-    const mouse = appState.cursorPos || { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-    const mxNorm = (mouse.x / window.innerWidth - 0.5) * 2; // -1..1
-    const myNorm = (mouse.y / window.innerHeight - 0.5) * -2;
+  // Landing Quantum Core animation (first screen only)
+  if (landingQuantumCore && appState.phase === 'arrival') {
+    const base = landingQuantumCore.userData.baseScale || 1;
+    const pulse = 1 + Math.sin(time * 2.0) * 0.12;
+    landingQuantumCore.scale.set(base * pulse, base * pulse, base * pulse);
+    landingQuantumCore.rotation.y += 0.01;
+    landingQuantumCore.rotation.x += 0.004;
+  }
 
-    const targetX = mxNorm * 300;
-    const targetY = myNorm * 200;
+  // Landing Mood Spheres: figure-8 orbit + hover highlight (arrival only)
+  if (landingMoodSpheres && landingMoodSpheres.length && appState.phase === 'arrival') {
+    // Hover detection via raycaster in NDC space
+    const cx = appState.cursorPos.x / window.innerWidth * 2 - 1;
+    const cy = -(appState.cursorPos.y / window.innerHeight * 2 - 1);
+    landingMouseNDC.set(cx, cy);
+    landingRaycaster.setFromCamera(landingMouseNDC, camera);
+    const hits = landingRaycaster.intersectObjects(landingMoodSpheres);
+    const hovered = hits.length ? hits[0].object : null;
 
-    // Update particle positions
-    for (let i = 0; i < qpfParticleCount; i++) {
-      const i3 = i * 3;
-
-      let x = qpfPositions[i3];
-      let y = qpfPositions[i3 + 1];
-      let z = qpfPositions[i3 + 2];
-
-      // Attraction toward mouse-projected point (in X/Y only)
-      const ax = (targetX - x) * attractStrength;
-      const ay = (targetY - y) * attractStrength;
-
-      qpfVelocities[i3] += ax;
-      qpfVelocities[i3 + 1] += ay;
-
-      // Apply velocity and mild damping
-      x += qpfVelocities[i3] * (deltaTime / 16);
-      y += qpfVelocities[i3 + 1] * (deltaTime / 16);
-      z += qpfVelocities[i3 + 2] * (deltaTime / 16);
-
-      qpfVelocities[i3] *= 0.995;
-      qpfVelocities[i3 + 1] *= 0.995;
-      qpfVelocities[i3 + 2] *= 0.995;
-
-      // Soft bounds to keep field around the scene
-      const limit = 1800;
-      if (x > limit || x < -limit) qpfVelocities[i3] *= -0.8;
-      if (z > limit || z < -limit) qpfVelocities[i3 + 2] *= -0.8;
-      if (y > limit * 0.6 || y < -limit * 0.6) qpfVelocities[i3 + 1] *= -0.8;
-
-      qpfPositions[i3] = x;
-      qpfPositions[i3 + 1] = y;
-      qpfPositions[i3 + 2] = z;
+    if (hovered !== landingHoveredSphere) {
+      // Reset previous
+      if (landingHoveredSphere && landingHoveredSphere.material) {
+        landingHoveredSphere.userData.baseScale = 1;
+        landingHoveredSphere.material.emissiveIntensity = 0.6;
+      }
+      landingHoveredSphere = hovered;
+      if (landingHoveredSphere && landingHoveredSphere.material) {
+        landingHoveredSphere.userData.baseScale = 1.18;
+        landingHoveredSphere.material.emissiveIntensity = 1.0;
+      }
     }
 
-    qpfGeometry.attributes.position.needsUpdate = true;
+    landingMoodSpheres.forEach((s, idx) => {
+      const base = s.userData.baseScale || 1;
+      const t = time * (s.userData.orbitSpeed || 0.15) + (s.userData.angleOffset || 0);
+      const r = s.userData.orbitRadius || 280;
+      const figure8 = Math.sin(t * 2); // squeeze Z for 8-like path
+      s.position.x = Math.cos(t) * r;
+      s.position.z = Math.sin(t) * r * figure8;
+      s.position.y = 40 + Math.sin(time * 1.5 + idx * 0.4) * 24;
 
-    // Build line connections between close particles
-    if (qpfLineGeometry && qpfLinePositions) {
-      let lineIndex = 0;
-      const maxDistSq = 260 * 260;
-
-      for (let i = 0; i < qpfParticleCount; i++) {
-        const i3 = i * 3;
-        const ix = qpfPositions[i3];
-        const iy = qpfPositions[i3 + 1];
-        const iz = qpfPositions[i3 + 2];
-
-        let links = 0;
-        for (let j = i + 1; j < qpfParticleCount && links < 6; j++) {
-          const j3 = j * 3;
-          const jx = qpfPositions[j3];
-          const jy = qpfPositions[j3 + 1];
-          const jz = qpfPositions[j3 + 2];
-
-          const dx = ix - jx;
-          const dy = iy - jy;
-          const dz = iz - jz;
-          const distSq = dx * dx + dy * dy + dz * dz;
-          if (distSq < maxDistSq) {
-            if (lineIndex >= qpfMaxConnections * 2 * 3) break;
-            const stride = lineIndex * 3;
-            qpfLinePositions[stride] = ix;
-            qpfLinePositions[stride + 1] = iy;
-            qpfLinePositions[stride + 2] = iz;
-            qpfLinePositions[stride + 3] = jx;
-            qpfLinePositions[stride + 4] = jy;
-            qpfLinePositions[stride + 5] = jz;
-            lineIndex += 2;
-            links++;
-          }
-        }
-      }
-
-      // Clear any unused segments
-      for (let k = lineIndex * 3; k < qpfLinePositions.length; k++) {
-        qpfLinePositions[k] = 0;
-      }
-
-      qpfLineGeometry.attributes.position.needsUpdate = true;
-    }
+      const breathe = 1 + Math.sin(time * 2 + idx * 0.6) * 0.06;
+      const finalScale = base * breathe;
+      s.scale.set(finalScale, finalScale, finalScale);
+    });
   }
 
   // ===== Animate Beautiful 3D Components =====
