@@ -233,6 +233,11 @@ document.getElementById('canvas').replaceWith(renderer.domElement);
 let consciousnessLattice = null; // large wireframe sphere grid
 let quantumTextVortex = null;    // torus knot around the book
 let emotionCrystals = {};        // one crystal per core emotion
+let memoryShards = [];           // floating dodecahedrons tied to story history
+let predictionOrbs = [];         // glowing orbs that appear on temporal predictions
+let giantEye = null;             // giant eye for dark/horror moods
+let butterflySprites = [];       // light butterflies for hopeful mood
+let orbitalSatellites = [];      // small satellites orbiting the globe
 
 // Initialize Socket.io client
 const socket = io('http://localhost:3000', {
@@ -397,12 +402,13 @@ function initializeArrival() {
   // 1. Rotating Wireframe Sphere
   const sphereGeometry = new THREE.IcosahedronGeometry(150, 4);
   const wireframeMaterial = new THREE.MeshPhongMaterial({
-    color: 0x00ff00,
+    color: 0x66ffd5,
     wireframe: true,
-    emissive: 0x00ff00,
-    emissiveIntensity: 0.3
+    emissive: 0xffffff,
+    emissiveIntensity: 2.0
   });
   const wireSphere = new THREE.Mesh(sphereGeometry, wireframeMaterial);
+  wireSphere.position.z = 80; // pull globe slightly toward camera
   wireSphere.userData.rotationAxis = new THREE.Vector3(1, 0.5, 0.3).normalize();
   scene.add(wireSphere);
 
@@ -457,7 +463,7 @@ function initializeArrival() {
     wireframe: true
   });
   const dodecahedron = new THREE.Mesh(dodecaGeometry, dodecaMaterial);
-  dodecahedron.position.y = -100;
+  dodecahedron.position.y = -200;
   dodecahedron.userData.bobSpeed = 0.01;
   dodecahedron.userData.bobAmount = 100;
   scene.add(dodecahedron);
@@ -465,16 +471,64 @@ function initializeArrival() {
   // 6. Central Floating Book (enhanced)
   const bookGeometry = new THREE.BoxGeometry(100, 120, 20);
   const bookMaterial = new THREE.MeshPhongMaterial({
-    color: 0x1a1a2e,
-    emissive: 0x00ffff,
-    emissiveIntensity: 0.2
+    color: 0x202040,
+    emissive: 0xffffff,
+    emissiveIntensity: 1.4
   });
   const book = new THREE.Mesh(bookGeometry, bookMaterial);
   book.castShadow = true;
   book.userData.rotationSpeed = 0.002;
+   // Keep book slightly in front of the main cluster
+  book.position.z = 100;
   scene.add(book);
 
-  // === New: Consciousness Lattice (large wireframe shell) ===
+  // Add enhanced lighting for 3D effect
+  const pointLight1 = new THREE.PointLight(0x00ffff, 2, 1000);
+  pointLight1.position.set(300, 300, 300);
+  pointLight1.castShadow = true;
+  scene.add(pointLight1);
+
+  const pointLight2 = new THREE.PointLight(0xff00ff, 2, 1000);
+  pointLight2.position.set(-300, -300, 300);
+  scene.add(pointLight2);
+
+  // Pulsing glow animation
+  setInterval(() => {
+    book.scale.set(
+      1 + Math.sin(Date.now() * 0.003) * 0.05,
+      1 + Math.cos(Date.now() * 0.003) * 0.05,
+      1
+    );
+  }, 16);
+
+  // Ambient drone
+  try {
+    Tone.Transport.bpm.value = 60;
+    new Tone.PolySynth(Tone.Synth).toDestination();
+  } catch (e) {
+    console.warn('Tone initialization skipped');
+  }
+
+  // Also bring in the reactive 3D layer on the front page so the whole experience feels 3D
+  initReactive3D();
+
+  // Show modal
+  showModal(
+    `<h2 style="color: #0ff; margin-bottom: 1rem;">ERASURE</h2>
+    <p>A story that reads you back — and never lets go.</p>
+    <p style="margin-top: 1rem; font-size: 0.9rem; color: #0f0;">May I see you?</p>
+    <button onclick="window.requestWebcamAndBegin()">Begin Reading</button>`,
+    false
+  );
+}
+
+// Helper: add the reactive 3D layer that should only appear once reading begins
+function initReactive3D() {
+  if (consciousnessLattice || quantumTextVortex || Object.keys(emotionCrystals).length > 0) {
+    return; // already initialized
+  }
+
+  // Shell
   const latticeGeo = new THREE.IcosahedronGeometry(600, 3);
   const latticeMat = new THREE.MeshBasicMaterial({
     color: 0x00ffff,
@@ -486,7 +540,7 @@ function initializeArrival() {
   consciousnessLattice.userData.pulseSpeed = 0.2;
   scene.add(consciousnessLattice);
 
-  // === New: Quantum Text Vortex (torus knot around book) ===
+  // Vortex around origin/book region
   const vortexGeo = new THREE.TorusKnotGeometry(180, 10, 200, 14);
   const vortexMat = new THREE.MeshPhongMaterial({
     color: 0x00ffff,
@@ -495,11 +549,10 @@ function initializeArrival() {
     wireframe: true
   });
   quantumTextVortex = new THREE.Mesh(vortexGeo, vortexMat);
-  quantumTextVortex.position.copy(book.position);
   quantumTextVortex.userData.spinSpeed = 0.005;
   scene.add(quantumTextVortex);
 
-  // === New: Emotion Crystals (one per core emotion) ===
+  // Emotion crystals
   const emotionColors = {
     happy: 0x00ff88,
     sad: 0x4488ff,
@@ -531,41 +584,84 @@ function initializeArrival() {
     emotionCrystals[key] = crystal;
   });
 
-  // Add enhanced lighting for 3D effect
-  const pointLight1 = new THREE.PointLight(0x00ffff, 2, 1000);
-  pointLight1.position.set(300, 300, 300);
-  pointLight1.castShadow = true;
-  scene.add(pointLight1);
-
-  const pointLight2 = new THREE.PointLight(0xff00ff, 2, 1000);
-  pointLight2.position.set(-300, -300, 300);
-  scene.add(pointLight2);
-
-  // Pulsing glow animation
-  setInterval(() => {
-    book.scale.set(
-      1 + Math.sin(Date.now() * 0.003) * 0.05,
-      1 + Math.cos(Date.now() * 0.003) * 0.05,
-      1
+  // Floating Memory Shards (representing past stories)
+  memoryShards = [];
+  const shardCount = Math.min(12, (appState.storyHistory || []).length || 6);
+  for (let i = 0; i < shardCount; i++) {
+    const shardGeo = new THREE.DodecahedronGeometry(40, 0);
+    const shardMat = new THREE.MeshPhongMaterial({
+      color: 0x99ffff,
+      emissive: 0x0088aa,
+      emissiveIntensity: 0.4,
+      transparent: true,
+      opacity: 0.35
+    });
+    const shard = new THREE.Mesh(shardGeo, shardMat);
+    const angle = (i / shardCount) * Math.PI * 2;
+    const radius = 480 + Math.random() * 120;
+    shard.position.set(
+      Math.cos(angle) * radius,
+      -80 + Math.random() * 220,
+      Math.sin(angle) * radius
     );
-  }, 16);
-
-  // Ambient drone
-  try {
-    Tone.Transport.bpm.value = 60;
-    new Tone.PolySynth(Tone.Synth).toDestination();
-  } catch (e) {
-    console.warn('Tone initialization skipped');
+    shard.userData.spinSpeed = 0.002 + Math.random() * 0.003;
+    shard.userData.floatOffset = Math.random() * Math.PI * 2;
+    scene.add(shard);
+    memoryShards.push(shard);
   }
 
-  // Show modal
-  showModal(
-    `<h2 style="color: #0ff; margin-bottom: 1rem;">ERASURE</h2>
-    <p>A story that reads you back — and never lets go.</p>
-    <p style="margin-top: 1rem; font-size: 0.9rem; color: #0f0;">May I see you?</p>
-    <button onclick="window.requestWebcamAndBegin()">Begin Reading</button>`,
-    false
-  );
+  // Extra orbiting satellites close to the central globe
+  orbitalSatellites = [];
+  const satelliteCount = 6;
+  for (let i = 0; i < satelliteCount; i++) {
+    const satGeo = new THREE.BoxGeometry(24, 12, 12);
+    const satMat = new THREE.MeshPhongMaterial({
+      color: 0x00ffff,
+      emissive: 0x00ccff,
+      emissiveIntensity: 0.8
+    });
+    const sat = new THREE.Mesh(satGeo, satMat);
+    sat.userData.angle = (i / satelliteCount) * Math.PI * 2;
+    sat.userData.radius = 260;
+    sat.userData.speed = 0.0025 + i * 0.0004;
+    sat.userData.heightOffset = 40 + (i % 3) * 25;
+    scene.add(sat);
+    orbitalSatellites.push(sat);
+  }
+
+  // Giant Eye (for dark / horror mood) - starts hidden, only animated in those moods
+  const eyeGeo = new THREE.SphereGeometry(90, 32, 32);
+  const eyeMat = new THREE.MeshPhongMaterial({
+    color: 0xffffff,
+    emissive: 0xaa0000,
+    emissiveIntensity: 0.6,
+    shininess: 80
+  });
+  giantEye = new THREE.Mesh(eyeGeo, eyeMat);
+  giantEye.position.set(0, 120, -120);
+  giantEye.visible = false;
+  scene.add(giantEye);
+
+  // Simple butterflies (glowing points) for hopeful mood
+  butterflySprites = [];
+  const butterflyCount = 20;
+  for (let i = 0; i < butterflyCount; i++) {
+    const bGeo = new THREE.SphereGeometry(6, 12, 12);
+    const bMat = new THREE.MeshPhongMaterial({
+      color: 0xffffaa,
+      emissive: 0xffff66,
+      emissiveIntensity: 0.9,
+      transparent: true,
+      opacity: 0.9
+    });
+    const b = new THREE.Mesh(bGeo, bMat);
+    b.userData.angle = (i / butterflyCount) * Math.PI * 2;
+    b.userData.radius = 260 + Math.random() * 60;
+    b.userData.speed = 0.0015 + Math.random() * 0.0015;
+    b.userData.heightOffset = -40 + Math.random() * 80;
+    scene.add(b);
+    butterflySprites.push(b);
+  }
 }
 
 // Request webcam permission (optional) and always continue to mood selection
@@ -596,6 +692,11 @@ function transitionToReading() {
   document.querySelector('.modal')?.remove();
   appState.phase = 'reading';
   console.log('→ Phase 2: READING');
+  // Hide the front-page holographic title once we move into reading/mood selection
+  const holoTitle = document.getElementById('holo-title');
+  if (holoTitle) {
+    holoTitle.style.display = 'none';
+  }
   
   // Show mood selection modal
   showMoodSelectionModal();
@@ -1215,6 +1316,9 @@ function renderStory(storyText) {
     document.body.appendChild(storyDisplay);
   }
 
+  // Prepare story panel but keep it hidden until user clicks Proceed
+  storyDisplay.style.display = 'none';
+
   // Clear any previous typing interval
   if (storyTypingInterval) {
     clearInterval(storyTypingInterval);
@@ -1262,12 +1366,15 @@ function renderStory(storyText) {
     textContainer.textContent = fullText.slice(0, index + 1);
     index += 1;
   }, typingSpeedMs);
-}
-
-// Full story is displayed at once - no need for Read More
-function readMoreStory() {
-  // Show mood-based suggestions instead
-  showMoodBasedSuggestions();
+  // Enable the dashboard Proceed button as the next-page trigger
+  const proceedBtn = document.getElementById('proceedButton');
+  if (proceedBtn) {
+    proceedBtn.style.display = 'inline-block';
+    proceedBtn.onclick = () => {
+      storyDisplay.style.display = 'block';
+      proceedBtn.style.display = 'none';
+    };
+  }
 }
 
 // Generate and display mood-based story suggestions
@@ -1914,6 +2021,7 @@ async function loadCharacterModel(url) {
 }
 
 function startReading() {
+  initReactive3D();
   // Handle both string and array formats
   const storyTextStr = Array.isArray(appState.storyText) 
     ? appState.storyText.join(' ') 
@@ -2266,6 +2374,19 @@ function animate() {
   const deltaTime = 16;
   const time = Date.now() * 0.001;
 
+  // Front-page holographic title parallax
+  const holo = document.getElementById('holo-title-inner');
+  if (holo && appState && appState.cursorPos) {
+    const nx = (appState.cursorPos.x / window.innerWidth) - 0.5; // -0.5 .. 0.5
+    const ny = (appState.cursorPos.y / window.innerHeight) - 0.5;
+    const rotateX = ny * -12;
+    const rotateY = nx * 18;
+    const translateZ = 40 + Math.sin(time * 1.2) * 18;
+    const translateX = nx * 40;
+    const translateY = ny * 24;
+    holo.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg) translate3d(${translateX}px, ${translateY}px, ${translateZ}px)`;
+  }
+
   // ===== Animate Beautiful 3D Components =====
   scene.children.forEach(obj => {
     if (!obj.userData) return;
@@ -2355,6 +2476,89 @@ function animate() {
     });
   }
 
+  // Orbital satellites: small lights circling the globe
+  if (orbitalSatellites && orbitalSatellites.length) {
+    orbitalSatellites.forEach((sat, idx) => {
+      sat.userData.angle += sat.userData.speed * deltaTime;
+      const r = sat.userData.radius || 260;
+      sat.position.x = Math.cos(sat.userData.angle) * r;
+      sat.position.z = Math.sin(sat.userData.angle) * r;
+      sat.position.y = sat.userData.heightOffset + Math.sin(time * 1.5 + idx * 0.5) * 10;
+      sat.rotation.y += 0.02;
+    });
+  }
+
+  // Memory Shards: slow float + spin in the background
+  if (memoryShards && memoryShards.length) {
+    memoryShards.forEach((shard, idx) => {
+      shard.rotation.x += (shard.userData.spinSpeed || 0.003);
+      shard.rotation.y += (shard.userData.spinSpeed || 0.003) * 0.7;
+      const baseY = -80 + (idx % 4) * 40;
+      const off = shard.userData.floatOffset || 0;
+      shard.position.y = baseY + Math.sin(time * 0.6 + off) * 30;
+    });
+  }
+
+  // Prediction Orbs: orbit and fade out over time
+  if (predictionOrbs && predictionOrbs.length) {
+    predictionOrbs = predictionOrbs.filter((orb) => {
+      orb.userData.life -= deltaTime;
+      const lifeRatio = Math.max(0, orb.userData.life / orb.userData.maxLife);
+      if (orb.material) {
+        orb.material.opacity = 0.2 + 0.6 * lifeRatio;
+        orb.material.emissiveIntensity = 0.3 + 0.7 * lifeRatio;
+      }
+      const speed = orb.userData.orbitSpeed || 0.0015;
+      orb.userData.angle += speed * deltaTime;
+      const r = orb.userData.radius || 260;
+      orb.position.x = Math.cos(orb.userData.angle) * r;
+      orb.position.z = Math.sin(orb.userData.angle) * r;
+      orb.position.y = 60 + Math.sin(time * 0.8) * 40;
+
+      if (lifeRatio <= 0) {
+        scene.remove(orb);
+        return false;
+      }
+      return true;
+    });
+  }
+
+  // Giant Eye behavior (only when story type is dark/horror)
+  if (giantEye) {
+    const mood = appState.storyType || 'random';
+    const active = mood === 'dark' || mood === 'horror';
+    giantEye.visible = active;
+    if (active) {
+      // Subtle breathing
+      const scale = 1 + Math.sin(time * 1.2) * 0.04;
+      giantEye.scale.set(scale, scale, scale);
+
+      // Slowly drift toward cursor projection on screen center plane
+      const targetX = (appState.cursorPos.x - window.innerWidth / 2) * 0.15;
+      const targetY = (window.innerHeight / 2 - appState.cursorPos.y) * 0.15;
+      giantEye.position.x += (targetX - giantEye.position.x) * 0.02;
+      giantEye.position.y += (targetY - giantEye.position.y) * 0.02;
+    }
+  }
+
+  // Butterflies behavior (only emphasized in hopeful mood)
+  if (butterflySprites && butterflySprites.length) {
+    const mood = appState.storyType || 'random';
+    const isHopeful = mood === 'hopeful';
+    butterflySprites.forEach((b, idx) => {
+      const baseOpacity = isHopeful ? 1.0 : 0.3;
+      if (b.material) {
+        b.material.opacity = baseOpacity;
+        b.material.emissiveIntensity = isHopeful ? 1.0 : 0.3;
+      }
+      b.userData.angle += b.userData.speed * deltaTime;
+      const r = b.userData.radius || 260;
+      b.position.x = Math.cos(b.userData.angle) * r;
+      b.position.z = Math.sin(b.userData.angle) * r;
+      b.position.y = b.userData.heightOffset + Math.sin(time * 2 + idx * 0.3) * 20;
+    });
+  }
+
   try {
     textDecayEngine.updateGlyphs(appState.cursorPos, deltaTime);
   } catch (e) {
@@ -2414,6 +2618,23 @@ function showTemporalPrediction() {
     notif.innerHTML = `<strong>▲ TEMPORAL PARADOX ▲</strong><br>${message.message}<br><span style="color: #0f0; font-size: 0.8rem;">Confidence: ${message.confidence}%</span>`;
     notif.style.display = 'block';
     appState.predictionsCount++;
+    // Spawn a glowing prediction orb in the 3D scene
+    const orbGeo = new THREE.SphereGeometry(18, 24, 24);
+    const orbMat = new THREE.MeshPhongMaterial({
+      color: 0xff66ff,
+      emissive: 0xff00ff,
+      emissiveIntensity: 1.0,
+      transparent: true,
+      opacity: 0.8
+    });
+    const orb = new THREE.Mesh(orbGeo, orbMat);
+    orb.userData.maxLife = 8000; // ms
+    orb.userData.life = 8000;
+    orb.userData.radius = 260 + Math.random() * 80;
+    orb.userData.angle = Math.random() * Math.PI * 2;
+    orb.userData.orbitSpeed = 0.001 + Math.random() * 0.0015;
+    scene.add(orb);
+    predictionOrbs.push(orb);
     setTimeout(() => {
       notif.style.display = 'none';
     }, 4000);
@@ -2482,15 +2703,18 @@ function transitionToEnding() {
   } catch (e) {
     console.warn('Text decay error:', e);
   }
+  // When we move to the final page, remove the 2D firework layer so the 3D background is fully visible
+  stopUIParticles();
   setTimeout(() => {
     showModal(
       `<h2 style="color: #0ff; margin-bottom: 1rem;">And just like that, it's gone.</h2>
       <p style="margin-top: 2rem; color: #0f0;">Would you like to live forever within this story?</p>
       <button onclick="window.uploadConsciousness()">Upload Consciousness</button>
-      <button onclick="window.exportSession()">Export Artifacts</button>`,
+      <button onclick="window.exportSession()">Export Artifacts</button>
+      <button style="margin-top: 1rem; background: transparent; border: 1px solid #0ff; color: #0ff; padding: 0.4rem 1.2rem; cursor: pointer;" onclick="this.closest('.modal').remove()">Close</button>`,
       false
     );
-  }, 2000);
+  }, 20000);
 }
 
 window.uploadConsciousness = function() {
@@ -2613,7 +2837,7 @@ function initUIParticles() {
   resizeUIParticles();
 
   uiParticles = [];
-  const particleCount = 120;
+  const particleCount = 80; // slightly fewer particles so effect is softer
   for (let i = 0; i < particleCount; i++) {
     uiParticles.push(new UIParticle(uiParticlesCanvas.width, uiParticlesCanvas.height));
   }
@@ -2631,11 +2855,13 @@ function resizeUIParticles() {
 }
 
 function animateUIParticles() {
+  if (!uiParticlesAnimating) return;
   if (!uiParticlesCtx || !uiParticlesCanvas) return;
   const width = uiParticlesCanvas.width;
   const height = uiParticlesCanvas.height;
 
-  uiParticlesCtx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+  // Lighter fade so particles don't darken the scene too much
+  uiParticlesCtx.fillStyle = 'rgba(0, 0, 0, 0.02)';
   uiParticlesCtx.fillRect(0, 0, width, height);
 
   uiParticles.forEach(p => {
@@ -2644,6 +2870,14 @@ function animateUIParticles() {
   });
 
   requestAnimationFrame(animateUIParticles);
+}
+
+function stopUIParticles() {
+  // Stop the animation loop and hide the firework layer
+  uiParticlesAnimating = false;
+  if (uiParticlesCanvas) {
+    uiParticlesCanvas.style.display = 'none';
+  }
 }
 
 // 3D Character autonomous movement
