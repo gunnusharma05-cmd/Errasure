@@ -243,6 +243,7 @@ let landingMoodSpheres = [];     // 6 mood spheres for landing hero
 let landingRaycaster = new THREE.Raycaster();
 let landingMouseNDC = new THREE.Vector2();
 let landingHoveredSphere = null;
+let landingPreselectedMood = null; // if set via landing sphere click, skip mood modal
 
 // Initialize Socket.io client
 const socket = io('http://localhost:3000', {
@@ -557,6 +558,19 @@ function initializeArrival() {
     landingMoodSpheres.push(s);
   });
 
+  // Bind a single global click handler to use hovered sphere as a mood shortcut
+  if (!window.__landingSphereClickBound) {
+    window.__landingSphereClickBound = true;
+    window.addEventListener('click', () => {
+      if (appState.phase !== 'arrival') return;
+      if (landingHoveredSphere && landingHoveredSphere.userData && landingHoveredSphere.userData.moodKey) {
+        landingPreselectedMood = landingHoveredSphere.userData.moodKey;
+        // Trigger the normal webcam + transition flow; transitionToReading will honor preselected mood
+        window.requestWebcamAndBegin();
+      }
+    });
+  }
+
   // Add enhanced lighting for 3D effect
   const pointLight1 = new THREE.PointLight(0x00ffff, 2, 1000);
   pointLight1.position.set(300, 300, 300);
@@ -781,7 +795,13 @@ function transitionToReading() {
     landingMoodSpheres.forEach((s) => { s.visible = false; });
   }
   
-  // Show mood selection modal
+  // If a landing mood sphere was clicked, jump directly into that mood's story
+  if (landingPreselectedMood && typeof window.selectMoodAndLoadStory === 'function') {
+    window.selectMoodAndLoadStory(landingPreselectedMood);
+    return;
+  }
+
+  // Otherwise, show mood selection modal as normal
   showMoodSelectionModal();
 }
 
