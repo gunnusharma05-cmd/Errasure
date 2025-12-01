@@ -14,6 +14,7 @@ import { io } from 'socket.io-client';
 import nlp from 'compromise';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import Character from './character/Character.js';
 
 // Register GSAP plugins
 gsap.registerPlugin(CSSPlugin);
@@ -222,17 +223,37 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   10000
 );
-camera.position.z = 500;
+camera.position.set(0, 60, 420);
+camera.lookAt(0, -140, 260);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 document.getElementById('canvas').replaceWith(renderer.domElement);
 
+// Strong lights to make GLB / placeholder clearly visible
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.6);
+dirLight.position.set(120, 220, 260);
+scene.add(dirLight);
+
+const ambLight = new THREE.AmbientLight(0xffffff, 0.6);
+scene.add(ambLight);
+
 // Key 3D feature handles for new reactive objects
 let consciousnessLattice = null; // large wireframe sphere grid
 let quantumTextVortex = null;    // torus knot around the book
 let emotionCrystals = {};        // one crystal per core emotion
+let memoryShards = [];           // floating dodecahedrons tied to story history
+let predictionOrbs = [];         // glowing orbs that appear on temporal predictions
+let giantEye = null;             // giant eye for dark/horror moods
+let butterflySprites = [];       // light butterflies for hopeful mood
+let orbitalSatellites = [];      // small satellites orbiting the globe
+let landingQuantumCore = null;   // pulsing core shown only on first screen
+let landingMoodSpheres = [];     // 6 mood spheres for landing hero
+let landingRaycaster = new THREE.Raycaster();
+let landingMouseNDC = new THREE.Vector2();
+let landingHoveredSphere = null;
+let landingPreselectedMood = null; // if set via landing sphere click, skip mood modal
 
 // Initialize Socket.io client
 const socket = io('http://localhost:3000', {
@@ -253,6 +274,52 @@ const temporalParadoxEngine = new TemporalParadoxEngine();
 const consciousnessUploadEngine = new ConsciousnessUploadEngine();
 const exportSystem = new ExportSystem();
 const brainwaveDetector = new BrainwaveDetector();
+
+// Dreamware 3D Characters (human avatars)
+let dreamCharacters = [];
+let dreamCharactersLoaded = false;
+let lastCursorNorm = { x: 0, y: 0 };
+
+async function initDreamCharacter() {
+  try {
+    // Three characters: left, center, right
+    const positions = [
+      new THREE.Vector3(-220, -140, 260),
+      new THREE.Vector3(0, -140, 260),
+      new THREE.Vector3(220, -140, 260)
+    ];
+
+    dreamCharacters = positions.map((pos) => new Character({ scene, camera, initialPosition: pos }));
+
+    // Load different GLB model for each character
+    const modelPaths = [
+      '/models/character/main.glb',
+      '/models/character/main2.glb',
+      '/models/character/main3.glb'
+    ];
+
+    await Promise.all(
+      dreamCharacters.map((char, idx) => char.loadMainModel(modelPaths[idx] || modelPaths[0]))
+    );
+
+    // Load animations for all three (safe even if clips missing)
+    await Promise.all(
+      dreamCharacters.map((char) =>
+        Promise.all([
+          char.loadAndRegisterAnimation('/models/character/happy.glb', 'Happy'),
+          char.loadAndRegisterAnimation('/models/character/sad.glb', 'Sad'),
+          char.loadAndRegisterAnimation('/models/character/talk.glb', 'Talk'),
+          char.loadAndRegisterAnimation('/models/character/angry.glb', 'Angry')
+        ])
+      )
+    );
+
+    dreamCharactersLoaded = true;
+    console.log('✓ Dream characters loaded:', dreamCharacters.length);
+  } catch (e) {
+    console.warn('Dream characters failed to load', e);
+  }
+}
 
 // Initialize story cache from localStorage
 function initStoryCache() {
@@ -364,6 +431,9 @@ async function initializeApp() {
     initializeDreamFeatures();
     console.log('✓ Dream Features initialized');
 
+    // Fire-and-forget 3D character loading (does not block experience)
+    initDreamCharacter();
+
     // Start the experience
     initializeArrival();
   } catch (error) {
@@ -397,12 +467,13 @@ function initializeArrival() {
   // 1. Rotating Wireframe Sphere
   const sphereGeometry = new THREE.IcosahedronGeometry(150, 4);
   const wireframeMaterial = new THREE.MeshPhongMaterial({
-    color: 0x00ff00,
+    color: 0x66ffd5,
     wireframe: true,
-    emissive: 0x00ff00,
-    emissiveIntensity: 0.3
+    emissive: 0xffffff,
+    emissiveIntensity: 2.0
   });
   const wireSphere = new THREE.Mesh(sphereGeometry, wireframeMaterial);
+  wireSphere.position.z = 80; // pull globe slightly toward camera
   wireSphere.userData.rotationAxis = new THREE.Vector3(1, 0.5, 0.3).normalize();
   scene.add(wireSphere);
 
@@ -457,7 +528,7 @@ function initializeArrival() {
     wireframe: true
   });
   const dodecahedron = new THREE.Mesh(dodecaGeometry, dodecaMaterial);
-  dodecahedron.position.y = -100;
+  dodecahedron.position.y = -200;
   dodecahedron.userData.bobSpeed = 0.01;
   dodecahedron.userData.bobAmount = 100;
   scene.add(dodecahedron);
@@ -465,16 +536,147 @@ function initializeArrival() {
   // 6. Central Floating Book (enhanced)
   const bookGeometry = new THREE.BoxGeometry(100, 120, 20);
   const bookMaterial = new THREE.MeshPhongMaterial({
-    color: 0x1a1a2e,
-    emissive: 0x00ffff,
-    emissiveIntensity: 0.2
+    color: 0x202040,
+    emissive: 0xffffff,
+    emissiveIntensity: 1.4
   });
   const book = new THREE.Mesh(bookGeometry, bookMaterial);
   book.castShadow = true;
   book.userData.rotationSpeed = 0.002;
+   // Keep book slightly in front of the main cluster
+  book.position.z = 100;
   scene.add(book);
 
-  // === New: Consciousness Lattice (large wireframe shell) ===
+  // Landing-only Quantum Core: pulsing orb with rotating rings
+  landingQuantumCore = new THREE.Group();
+
+  const coreGeo = new THREE.SphereGeometry(40, 32, 32);
+  const coreMat = new THREE.MeshPhongMaterial({
+    color: 0x00ffff,
+    emissive: 0x0088ff,
+    emissiveIntensity: 1.0,
+    transparent: true,
+    opacity: 0.95
+  });
+  const coreSphere = new THREE.Mesh(coreGeo, coreMat);
+  landingQuantumCore.add(coreSphere);
+
+  const ringGeo = new THREE.TorusGeometry(70, 4, 16, 64);
+  const ringMat = new THREE.MeshPhongMaterial({
+    color: 0x00ffff,
+    emissive: 0x00ffff,
+    emissiveIntensity: 0.6,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.7
+  });
+  const ring1 = new THREE.Mesh(ringGeo, ringMat);
+  ring1.rotation.x = Math.PI / 4;
+  const ring2 = new THREE.Mesh(ringGeo, ringMat.clone());
+  ring2.rotation.y = Math.PI / 3;
+  landingQuantumCore.add(ring1);
+  landingQuantumCore.add(ring2);
+
+  landingQuantumCore.position.set(0, 0, 0);
+  landingQuantumCore.userData.baseScale = 1;
+  scene.add(landingQuantumCore);
+
+  // Landing-only Mood Spheres (one per story type, visual layer only)
+  landingMoodSpheres = [];
+  const moodDefs = [
+    { key: 'mystical', color: 0x9d4edd },   // purple stars
+    { key: 'dark',     color: 0x111111 },   // dark / almost black
+    { key: 'hopeful',  color: 0xffd700 },   // gold
+    { key: 'surreal',  color: 0xff00ff },   // magenta / rainbow later
+    { key: 'horror',   color: 0xff0044 },   // red veins
+    { key: 'random',   color: 0x00ffff }    // glitch/static mood
+  ];
+
+  const moodRadius = 280;
+  moodDefs.forEach((def, idx) => {
+    const sphereGeo = new THREE.SphereGeometry(36, 32, 32);
+    const sphereMat = new THREE.MeshPhongMaterial({
+      color: def.color,
+      emissive: def.color,
+      emissiveIntensity: 0.5,
+      transparent: true,
+      opacity: 0.95
+    });
+    const s = new THREE.Mesh(sphereGeo, sphereMat);
+    s.userData.moodKey = def.key;
+    s.userData.orbitRadius = moodRadius;
+    s.userData.orbitSpeed = 0.12 + idx * 0.02;
+    s.userData.baseScale = 1;
+    s.userData.angleOffset = (idx / moodDefs.length) * Math.PI * 2;
+    s.position.set(
+      Math.cos(s.userData.angleOffset) * moodRadius,
+      40,
+      Math.sin(s.userData.angleOffset) * moodRadius
+    );
+    scene.add(s);
+    landingMoodSpheres.push(s);
+  });
+
+  // Bind a single global click handler to use hovered sphere as a mood shortcut
+  if (!window.__landingSphereClickBound) {
+    window.__landingSphereClickBound = true;
+    window.addEventListener('click', () => {
+      if (appState.phase !== 'arrival') return;
+      if (landingHoveredSphere && landingHoveredSphere.userData && landingHoveredSphere.userData.moodKey) {
+        landingPreselectedMood = landingHoveredSphere.userData.moodKey;
+        // Trigger the normal webcam + transition flow; transitionToReading will honor preselected mood
+        window.requestWebcamAndBegin();
+      }
+    });
+  }
+
+  // Add enhanced lighting for 3D effect
+  const pointLight1 = new THREE.PointLight(0x00ffff, 2, 1000);
+  pointLight1.position.set(300, 300, 300);
+  pointLight1.castShadow = true;
+  scene.add(pointLight1);
+
+  const pointLight2 = new THREE.PointLight(0xff00ff, 2, 1000);
+  pointLight2.position.set(-300, -300, 300);
+  scene.add(pointLight2);
+
+  // Pulsing glow animation
+  setInterval(() => {
+    book.scale.set(
+      1 + Math.sin(Date.now() * 0.003) * 0.05,
+      1 + Math.cos(Date.now() * 0.003) * 0.05,
+      1
+    );
+  }, 16);
+
+  // Ambient drone
+  try {
+    Tone.Transport.bpm.value = 60;
+    new Tone.PolySynth(Tone.Synth).toDestination();
+  } catch (e) {
+    console.warn('Tone initialization skipped');
+  }
+
+  // Also bring in the reactive 3D layer on the front page so the whole experience feels 3D
+  initReactive3D();
+
+  // Show modal
+  showModal(
+    `<h2 style="color: #0ff; margin-bottom: 1rem;">ERASURE</h2>
+    <p>A story that reads you back — and never lets go.</p>
+    <p style="margin-top: 1rem; font-size: 0.9rem; color: #0f0;">May I see you?</p>
+    <button onclick="window.requestWebcamAndBegin()">Begin Reading</button>`,
+    false
+  );
+}
+
+// Helper: add the reactive 3D layer that should only appear once reading begins
+function initReactive3D() {
+  if (consciousnessLattice || quantumTextVortex || Object.keys(emotionCrystals).length > 0) {
+    return; // already initialized
+  }
+
+  // Shell
   const latticeGeo = new THREE.IcosahedronGeometry(600, 3);
   const latticeMat = new THREE.MeshBasicMaterial({
     color: 0x00ffff,
@@ -486,7 +688,7 @@ function initializeArrival() {
   consciousnessLattice.userData.pulseSpeed = 0.2;
   scene.add(consciousnessLattice);
 
-  // === New: Quantum Text Vortex (torus knot around book) ===
+  // Vortex around origin/book region
   const vortexGeo = new THREE.TorusKnotGeometry(180, 10, 200, 14);
   const vortexMat = new THREE.MeshPhongMaterial({
     color: 0x00ffff,
@@ -495,11 +697,10 @@ function initializeArrival() {
     wireframe: true
   });
   quantumTextVortex = new THREE.Mesh(vortexGeo, vortexMat);
-  quantumTextVortex.position.copy(book.position);
   quantumTextVortex.userData.spinSpeed = 0.005;
   scene.add(quantumTextVortex);
 
-  // === New: Emotion Crystals (one per core emotion) ===
+  // Emotion crystals
   const emotionColors = {
     happy: 0x00ff88,
     sad: 0x4488ff,
@@ -531,41 +732,84 @@ function initializeArrival() {
     emotionCrystals[key] = crystal;
   });
 
-  // Add enhanced lighting for 3D effect
-  const pointLight1 = new THREE.PointLight(0x00ffff, 2, 1000);
-  pointLight1.position.set(300, 300, 300);
-  pointLight1.castShadow = true;
-  scene.add(pointLight1);
-
-  const pointLight2 = new THREE.PointLight(0xff00ff, 2, 1000);
-  pointLight2.position.set(-300, -300, 300);
-  scene.add(pointLight2);
-
-  // Pulsing glow animation
-  setInterval(() => {
-    book.scale.set(
-      1 + Math.sin(Date.now() * 0.003) * 0.05,
-      1 + Math.cos(Date.now() * 0.003) * 0.05,
-      1
+  // Floating Memory Shards (representing past stories)
+  memoryShards = [];
+  const shardCount = Math.min(12, (appState.storyHistory || []).length || 6);
+  for (let i = 0; i < shardCount; i++) {
+    const shardGeo = new THREE.DodecahedronGeometry(40, 0);
+    const shardMat = new THREE.MeshPhongMaterial({
+      color: 0x99ffff,
+      emissive: 0x0088aa,
+      emissiveIntensity: 0.4,
+      transparent: true,
+      opacity: 0.35
+    });
+    const shard = new THREE.Mesh(shardGeo, shardMat);
+    const angle = (i / shardCount) * Math.PI * 2;
+    const radius = 480 + Math.random() * 120;
+    shard.position.set(
+      Math.cos(angle) * radius,
+      -80 + Math.random() * 220,
+      Math.sin(angle) * radius
     );
-  }, 16);
-
-  // Ambient drone
-  try {
-    Tone.Transport.bpm.value = 60;
-    new Tone.PolySynth(Tone.Synth).toDestination();
-  } catch (e) {
-    console.warn('Tone initialization skipped');
+    shard.userData.spinSpeed = 0.002 + Math.random() * 0.003;
+    shard.userData.floatOffset = Math.random() * Math.PI * 2;
+    scene.add(shard);
+    memoryShards.push(shard);
   }
 
-  // Show modal
-  showModal(
-    `<h2 style="color: #0ff; margin-bottom: 1rem;">ERASURE</h2>
-    <p>A story that reads you back — and never lets go.</p>
-    <p style="margin-top: 1rem; font-size: 0.9rem; color: #0f0;">May I see you?</p>
-    <button onclick="window.requestWebcamAndBegin()">Begin Reading</button>`,
-    false
-  );
+  // Extra orbiting satellites close to the central globe
+  orbitalSatellites = [];
+  const satelliteCount = 6;
+  for (let i = 0; i < satelliteCount; i++) {
+    const satGeo = new THREE.BoxGeometry(24, 12, 12);
+    const satMat = new THREE.MeshPhongMaterial({
+      color: 0x00ffff,
+      emissive: 0x00ccff,
+      emissiveIntensity: 0.8
+    });
+    const sat = new THREE.Mesh(satGeo, satMat);
+    sat.userData.angle = (i / satelliteCount) * Math.PI * 2;
+    sat.userData.radius = 260;
+    sat.userData.speed = 0.0025 + i * 0.0004;
+    sat.userData.heightOffset = 40 + (i % 3) * 25;
+    scene.add(sat);
+    orbitalSatellites.push(sat);
+  }
+
+  // Giant Eye (for dark / horror mood) - starts hidden, only animated in those moods
+  const eyeGeo = new THREE.SphereGeometry(90, 32, 32);
+  const eyeMat = new THREE.MeshPhongMaterial({
+    color: 0xffffff,
+    emissive: 0xaa0000,
+    emissiveIntensity: 0.6,
+    shininess: 80
+  });
+  giantEye = new THREE.Mesh(eyeGeo, eyeMat);
+  giantEye.position.set(0, 120, -120);
+  giantEye.visible = false;
+  scene.add(giantEye);
+
+  // Simple butterflies (glowing points) for hopeful mood
+  butterflySprites = [];
+  const butterflyCount = 20;
+  for (let i = 0; i < butterflyCount; i++) {
+    const bGeo = new THREE.SphereGeometry(6, 12, 12);
+    const bMat = new THREE.MeshPhongMaterial({
+      color: 0xffffaa,
+      emissive: 0xffff66,
+      emissiveIntensity: 0.9,
+      transparent: true,
+      opacity: 0.9
+    });
+    const b = new THREE.Mesh(bGeo, bMat);
+    b.userData.angle = (i / butterflyCount) * Math.PI * 2;
+    b.userData.radius = 260 + Math.random() * 60;
+    b.userData.speed = 0.0015 + Math.random() * 0.0015;
+    b.userData.heightOffset = -40 + Math.random() * 80;
+    scene.add(b);
+    butterflySprites.push(b);
+  }
 }
 
 // Request webcam permission (optional) and always continue to mood selection
@@ -576,6 +820,7 @@ window.requestWebcamAndBegin = async function() {
       const videoEl = document.getElementById('webcam');
       if (videoEl) {
         videoEl.srcObject = stream;
+        videoEl.style.display = 'block';
       }
       socket.emit('reader:join', {
         emotions: emotionEngine.currentEmotions,
@@ -586,6 +831,19 @@ window.requestWebcamAndBegin = async function() {
   } catch (e) {
     console.error('Webcam access denied or failed:', e);
   } finally {
+    try {
+      if (dreamCharactersLoaded && dreamCharacters && dreamCharacters.length) {
+        dreamCharacters.forEach((char, idx) => {
+          if (!char) return;
+          char.enterFrom();
+          if (idx === 0) {
+            char.speak('May I see you? I would like to read with you.');
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('Dream characters entrance failed', e);
+    }
     // Always proceed to mood selection, even if webcam fails
     transitionToReading();
   }
@@ -596,8 +854,27 @@ function transitionToReading() {
   document.querySelector('.modal')?.remove();
   appState.phase = 'reading';
   console.log('→ Phase 2: READING');
+  // Hide the front-page holographic title once we move into reading/mood selection
+  const holoTitle = document.getElementById('holo-title');
+  if (holoTitle) {
+    holoTitle.style.display = 'none';
+  }
+  // Hide landing-only quantum core once we leave the first screen
+  if (landingQuantumCore) {
+    landingQuantumCore.visible = false;
+  }
+  // Hide landing mood spheres so they only appear on hero slide
+  if (landingMoodSpheres && landingMoodSpheres.length) {
+    landingMoodSpheres.forEach((s) => { s.visible = false; });
+  }
   
-  // Show mood selection modal
+  // If a landing mood sphere was clicked, jump directly into that mood's story
+  if (landingPreselectedMood && typeof window.selectMoodAndLoadStory === 'function') {
+    window.selectMoodAndLoadStory(landingPreselectedMood);
+    return;
+  }
+
+  // Otherwise, show mood selection modal as normal
   showMoodSelectionModal();
 }
 
@@ -828,6 +1105,21 @@ function showMoodMeterScreen(mood) {
 
 window.selectMoodAndLoadStory = async function(mood) {
   console.log(`🎯 Mood selected: ${mood}`);
+  try {
+    if (dreamCharactersLoaded && dreamCharacters && dreamCharacters.length) {
+      dreamCharacters.forEach((char) => char.setMood(mood));
+    }
+
+    // If user selects a sad mood, swap the primary character's model to dying.glb
+    if (mood === 'sad' && dreamCharactersLoaded && dreamCharacters && dreamCharacters.length) {
+      const primary = dreamCharacters[0];
+      if (primary && typeof primary.swapMainModel === 'function') {
+        primary.swapMainModel('/models/character/dying.glb');
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to set dream character mood', e);
+  }
   showMoodMeterScreen(mood);
 };
 
@@ -879,7 +1171,7 @@ function loadStoryWithType(storyType) {
       startReading();
       return;
     }
-    
+
     // Fallback: Use hardcoded story if online fetch fails
     console.log('📚 Falling back to local story library');
     loadLocalStory(storyType);
@@ -1215,6 +1507,9 @@ function renderStory(storyText) {
     document.body.appendChild(storyDisplay);
   }
 
+  // Prepare story panel but keep it hidden until user clicks Proceed
+  storyDisplay.style.display = 'none';
+
   // Clear any previous typing interval
   if (storyTypingInterval) {
     clearInterval(storyTypingInterval);
@@ -1262,12 +1557,65 @@ function renderStory(storyText) {
     textContainer.textContent = fullText.slice(0, index + 1);
     index += 1;
   }, typingSpeedMs);
+  // Enable the dashboard Proceed button as the next-page trigger
+  const proceedBtn = document.getElementById('proceedButton');
+  if (proceedBtn) {
+    proceedBtn.style.display = 'inline-block';
+    proceedBtn.onclick = async () => {
+      storyDisplay.style.display = 'block';
+      proceedBtn.style.display = 'none';
+      try {
+        await characterReadStoryAloud(textArray);
+      } catch (e) {
+        console.warn('Character read-aloud failed:', e);
+      }
+    };
+  }
 }
 
-// Full story is displayed at once - no need for Read More
-function readMoreStory() {
-  // Show mood-based suggestions instead
-  showMoodBasedSuggestions();
+// Have the Dreamware character read the full story aloud after Proceed
+async function characterReadStoryAloud(parts) {
+  if (!dreamCharactersLoaded || !dreamCharacters || !dreamCharacters.length) return;
+  if (!Array.isArray(parts) || parts.length === 0) return;
+
+  try {
+    await Promise.resolve();
+  } catch (e) {}
+
+  try {
+    dreamCharacters.forEach((char) => char.setMood('reading'));
+  } catch (e) {}
+
+  const midpoint = Math.floor(parts.length / 2) || 0;
+
+  for (let i = 0; i < parts.length; i++) {
+    const raw = parts[i];
+    const baseText = String(raw || '').trim();
+    if (!baseText) continue;
+
+    let textToSpeak = baseText;
+    if (i === midpoint) {
+      textToSpeak += ' ... How are you feeling right now inside this story?';
+    }
+
+    try {
+      const speaker = dreamCharacters[0] || dreamCharacters[1] || dreamCharacters[2];
+      if (speaker) {
+        speaker.speak(textToSpeak, { rate: 1, pitch: 1 });
+      }
+    } catch (e) {
+      console.warn('Speak error:', e);
+    }
+
+    const approxMs = Math.max(1500, textToSpeak.length * 55);
+    await new Promise((r) => setTimeout(r, approxMs));
+  }
+
+  try {
+    if (dreamCharactersLoaded && dreamCharacters && dreamCharacters.length) {
+      dreamCharacters.forEach((char) => char.setMood('neutral'));
+    }
+  } catch (e) {}
 }
 
 // Generate and display mood-based story suggestions
@@ -1914,6 +2262,7 @@ async function loadCharacterModel(url) {
 }
 
 function startReading() {
+  initReactive3D();
   // Handle both string and array formats
   const storyTextStr = Array.isArray(appState.storyText) 
     ? appState.storyText.join(' ') 
@@ -2266,6 +2615,78 @@ function animate() {
   const deltaTime = 16;
   const time = Date.now() * 0.001;
 
+  try {
+    if (dreamCharactersLoaded && dreamCharacters && dreamCharacters.length) {
+      dreamCharacters.forEach((char) => {
+        if (!char) return;
+        char.update();
+        char.followCursor(lastCursorNorm);
+      });
+    }
+  } catch (e) {
+    // Character update failures should never break core loop
+  }
+
+  // Front-page holographic title parallax
+  const holo = document.getElementById('holo-title-inner');
+  if (holo && appState && appState.cursorPos) {
+    const nx = (appState.cursorPos.x / window.innerWidth) - 0.5; // -0.5 .. 0.5
+    const ny = (appState.cursorPos.y / window.innerHeight) - 0.5;
+    const rotateX = ny * -12;
+    const rotateY = nx * 18;
+    const translateZ = 40 + Math.sin(time * 1.2) * 18;
+    const translateX = nx * 40;
+    const translateY = ny * 24;
+    holo.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg) translate3d(${translateX}px, ${translateY}px, ${translateZ}px)`;
+  }
+
+  // Landing Quantum Core animation (first screen only)
+  if (landingQuantumCore && appState.phase === 'arrival') {
+    const base = landingQuantumCore.userData.baseScale || 1;
+    const pulse = 1 + Math.sin(time * 2.0) * 0.12;
+    landingQuantumCore.scale.set(base * pulse, base * pulse, base * pulse);
+    landingQuantumCore.rotation.y += 0.01;
+    landingQuantumCore.rotation.x += 0.004;
+  }
+
+  // Landing Mood Spheres: figure-8 orbit + hover highlight (arrival only)
+  if (landingMoodSpheres && landingMoodSpheres.length && appState.phase === 'arrival') {
+    // Hover detection via raycaster in NDC space
+    const cx = appState.cursorPos.x / window.innerWidth * 2 - 1;
+    const cy = -(appState.cursorPos.y / window.innerHeight * 2 - 1);
+    landingMouseNDC.set(cx, cy);
+    landingRaycaster.setFromCamera(landingMouseNDC, camera);
+    const hits = landingRaycaster.intersectObjects(landingMoodSpheres);
+    const hovered = hits.length ? hits[0].object : null;
+
+    if (hovered !== landingHoveredSphere) {
+      // Reset previous
+      if (landingHoveredSphere && landingHoveredSphere.material) {
+        landingHoveredSphere.userData.baseScale = 1;
+        landingHoveredSphere.material.emissiveIntensity = 0.6;
+      }
+      landingHoveredSphere = hovered;
+      if (landingHoveredSphere && landingHoveredSphere.material) {
+        landingHoveredSphere.userData.baseScale = 1.18;
+        landingHoveredSphere.material.emissiveIntensity = 1.0;
+      }
+    }
+
+    landingMoodSpheres.forEach((s, idx) => {
+      const base = s.userData.baseScale || 1;
+      const t = time * (s.userData.orbitSpeed || 0.15) + (s.userData.angleOffset || 0);
+      const r = s.userData.orbitRadius || 280;
+      const figure8 = Math.sin(t * 2); // squeeze Z for 8-like path
+      s.position.x = Math.cos(t) * r;
+      s.position.z = Math.sin(t) * r * figure8;
+      s.position.y = 40 + Math.sin(time * 1.5 + idx * 0.4) * 24;
+
+      const breathe = 1 + Math.sin(time * 2 + idx * 0.6) * 0.06;
+      const finalScale = base * breathe;
+      s.scale.set(finalScale, finalScale, finalScale);
+    });
+  }
+
   // ===== Animate Beautiful 3D Components =====
   scene.children.forEach(obj => {
     if (!obj.userData) return;
@@ -2355,6 +2776,89 @@ function animate() {
     });
   }
 
+  // Orbital satellites: small lights circling the globe
+  if (orbitalSatellites && orbitalSatellites.length) {
+    orbitalSatellites.forEach((sat, idx) => {
+      sat.userData.angle += sat.userData.speed * deltaTime;
+      const r = sat.userData.radius || 260;
+      sat.position.x = Math.cos(sat.userData.angle) * r;
+      sat.position.z = Math.sin(sat.userData.angle) * r;
+      sat.position.y = sat.userData.heightOffset + Math.sin(time * 1.5 + idx * 0.5) * 10;
+      sat.rotation.y += 0.02;
+    });
+  }
+
+  // Memory Shards: slow float + spin in the background
+  if (memoryShards && memoryShards.length) {
+    memoryShards.forEach((shard, idx) => {
+      shard.rotation.x += (shard.userData.spinSpeed || 0.003);
+      shard.rotation.y += (shard.userData.spinSpeed || 0.003) * 0.7;
+      const baseY = -80 + (idx % 4) * 40;
+      const off = shard.userData.floatOffset || 0;
+      shard.position.y = baseY + Math.sin(time * 0.6 + off) * 30;
+    });
+  }
+
+  // Prediction Orbs: orbit and fade out over time
+  if (predictionOrbs && predictionOrbs.length) {
+    predictionOrbs = predictionOrbs.filter((orb) => {
+      orb.userData.life -= deltaTime;
+      const lifeRatio = Math.max(0, orb.userData.life / orb.userData.maxLife);
+      if (orb.material) {
+        orb.material.opacity = 0.2 + 0.6 * lifeRatio;
+        orb.material.emissiveIntensity = 0.3 + 0.7 * lifeRatio;
+      }
+      const speed = orb.userData.orbitSpeed || 0.0015;
+      orb.userData.angle += speed * deltaTime;
+      const r = orb.userData.radius || 260;
+      orb.position.x = Math.cos(orb.userData.angle) * r;
+      orb.position.z = Math.sin(orb.userData.angle) * r;
+      orb.position.y = 60 + Math.sin(time * 0.8) * 40;
+
+      if (lifeRatio <= 0) {
+        scene.remove(orb);
+        return false;
+      }
+      return true;
+    });
+  }
+
+  // Giant Eye behavior (only when story type is dark/horror)
+  if (giantEye) {
+    const mood = appState.storyType || 'random';
+    const active = mood === 'dark' || mood === 'horror';
+    giantEye.visible = active;
+    if (active) {
+      // Subtle breathing
+      const scale = 1 + Math.sin(time * 1.2) * 0.04;
+      giantEye.scale.set(scale, scale, scale);
+
+      // Slowly drift toward cursor projection on screen center plane
+      const targetX = (appState.cursorPos.x - window.innerWidth / 2) * 0.15;
+      const targetY = (window.innerHeight / 2 - appState.cursorPos.y) * 0.15;
+      giantEye.position.x += (targetX - giantEye.position.x) * 0.02;
+      giantEye.position.y += (targetY - giantEye.position.y) * 0.02;
+    }
+  }
+
+  // Butterflies behavior (only emphasized in hopeful mood)
+  if (butterflySprites && butterflySprites.length) {
+    const mood = appState.storyType || 'random';
+    const isHopeful = mood === 'hopeful';
+    butterflySprites.forEach((b, idx) => {
+      const baseOpacity = isHopeful ? 1.0 : 0.3;
+      if (b.material) {
+        b.material.opacity = baseOpacity;
+        b.material.emissiveIntensity = isHopeful ? 1.0 : 0.3;
+      }
+      b.userData.angle += b.userData.speed * deltaTime;
+      const r = b.userData.radius || 260;
+      b.position.x = Math.cos(b.userData.angle) * r;
+      b.position.z = Math.sin(b.userData.angle) * r;
+      b.position.y = b.userData.heightOffset + Math.sin(time * 2 + idx * 0.3) * 20;
+    });
+  }
+
   try {
     textDecayEngine.updateGlyphs(appState.cursorPos, deltaTime);
   } catch (e) {
@@ -2414,6 +2918,23 @@ function showTemporalPrediction() {
     notif.innerHTML = `<strong>▲ TEMPORAL PARADOX ▲</strong><br>${message.message}<br><span style="color: #0f0; font-size: 0.8rem;">Confidence: ${message.confidence}%</span>`;
     notif.style.display = 'block';
     appState.predictionsCount++;
+    // Spawn a glowing prediction orb in the 3D scene
+    const orbGeo = new THREE.SphereGeometry(18, 24, 24);
+    const orbMat = new THREE.MeshPhongMaterial({
+      color: 0xff66ff,
+      emissive: 0xff00ff,
+      emissiveIntensity: 1.0,
+      transparent: true,
+      opacity: 0.8
+    });
+    const orb = new THREE.Mesh(orbGeo, orbMat);
+    orb.userData.maxLife = 8000; // ms
+    orb.userData.life = 8000;
+    orb.userData.radius = 260 + Math.random() * 80;
+    orb.userData.angle = Math.random() * Math.PI * 2;
+    orb.userData.orbitSpeed = 0.001 + Math.random() * 0.0015;
+    scene.add(orb);
+    predictionOrbs.push(orb);
     setTimeout(() => {
       notif.style.display = 'none';
     }, 4000);
@@ -2482,15 +3003,18 @@ function transitionToEnding() {
   } catch (e) {
     console.warn('Text decay error:', e);
   }
+  // When we move to the final page, remove the 2D firework layer so the 3D background is fully visible
+  stopUIParticles();
   setTimeout(() => {
     showModal(
       `<h2 style="color: #0ff; margin-bottom: 1rem;">And just like that, it's gone.</h2>
       <p style="margin-top: 2rem; color: #0f0;">Would you like to live forever within this story?</p>
       <button onclick="window.uploadConsciousness()">Upload Consciousness</button>
-      <button onclick="window.exportSession()">Export Artifacts</button>`,
+      <button onclick="window.exportSession()">Export Artifacts</button>
+      <button style="margin-top: 1rem; background: transparent; border: 1px solid #0ff; color: #0ff; padding: 0.4rem 1.2rem; cursor: pointer;" onclick="this.closest('.modal').remove()">Close</button>`,
       false
     );
-  }, 2000);
+  }, 20000);
 }
 
 window.uploadConsciousness = function() {
@@ -2613,7 +3137,7 @@ function initUIParticles() {
   resizeUIParticles();
 
   uiParticles = [];
-  const particleCount = 120;
+  const particleCount = 80; // slightly fewer particles so effect is softer
   for (let i = 0; i < particleCount; i++) {
     uiParticles.push(new UIParticle(uiParticlesCanvas.width, uiParticlesCanvas.height));
   }
@@ -2631,11 +3155,13 @@ function resizeUIParticles() {
 }
 
 function animateUIParticles() {
+  if (!uiParticlesAnimating) return;
   if (!uiParticlesCtx || !uiParticlesCanvas) return;
   const width = uiParticlesCanvas.width;
   const height = uiParticlesCanvas.height;
 
-  uiParticlesCtx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+  // Lighter fade so particles don't darken the scene too much
+  uiParticlesCtx.fillStyle = 'rgba(0, 0, 0, 0.02)';
   uiParticlesCtx.fillRect(0, 0, width, height);
 
   uiParticles.forEach(p => {
@@ -2644,6 +3170,14 @@ function animateUIParticles() {
   });
 
   requestAnimationFrame(animateUIParticles);
+}
+
+function stopUIParticles() {
+  // Stop the animation loop and hide the firework layer
+  uiParticlesAnimating = false;
+  if (uiParticlesCanvas) {
+    uiParticlesCanvas.style.display = 'none';
+  }
 }
 
 // 3D Character autonomous movement
@@ -2742,6 +3276,11 @@ function updateCharacterMoodVisuals(storyType) {
 // Preserve temporalParadoxEngine tracking
 document.addEventListener('mousemove', (e) => {
   appState.cursorPos = { x: e.clientX, y: e.clientY };
+  try {
+    const nx = (e.clientX / window.innerWidth) * 2 - 1;
+    const ny = -((e.clientY / window.innerHeight) * 2 - 1);
+    lastCursorNorm = { x: nx, y: ny };
+  } catch (e) {}
   try {
     temporalParadoxEngine.recordAction('move');
   } catch (e) {
