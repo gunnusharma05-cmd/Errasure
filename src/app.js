@@ -14,6 +14,7 @@ import { io } from 'socket.io-client';
 import nlp from 'compromise';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import Character from './character/Character.js';
 
 // Register GSAP plugins
 gsap.registerPlugin(CSSPlugin);
@@ -222,12 +223,21 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   10000
 );
-camera.position.z = 500;
+camera.position.set(0, 60, 420);
+camera.lookAt(0, -140, 260);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 document.getElementById('canvas').replaceWith(renderer.domElement);
+
+// Strong lights to make GLB / placeholder clearly visible
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.6);
+dirLight.position.set(120, 220, 260);
+scene.add(dirLight);
+
+const ambLight = new THREE.AmbientLight(0xffffff, 0.6);
+scene.add(ambLight);
 
 // Key 3D feature handles for new reactive objects
 let consciousnessLattice = null; // large wireframe sphere grid
@@ -264,6 +274,52 @@ const temporalParadoxEngine = new TemporalParadoxEngine();
 const consciousnessUploadEngine = new ConsciousnessUploadEngine();
 const exportSystem = new ExportSystem();
 const brainwaveDetector = new BrainwaveDetector();
+
+// Dreamware 3D Characters (human avatars)
+let dreamCharacters = [];
+let dreamCharactersLoaded = false;
+let lastCursorNorm = { x: 0, y: 0 };
+
+async function initDreamCharacter() {
+  try {
+    // Three characters: left, center, right
+    const positions = [
+      new THREE.Vector3(-220, -140, 260),
+      new THREE.Vector3(0, -140, 260),
+      new THREE.Vector3(220, -140, 260)
+    ];
+
+    dreamCharacters = positions.map((pos) => new Character({ scene, camera, initialPosition: pos }));
+
+    // Load different GLB model for each character
+    const modelPaths = [
+      '/models/character/main.glb',
+      '/models/character/main2.glb',
+      '/models/character/main3.glb'
+    ];
+
+    await Promise.all(
+      dreamCharacters.map((char, idx) => char.loadMainModel(modelPaths[idx] || modelPaths[0]))
+    );
+
+    // Load animations for all three (safe even if clips missing)
+    await Promise.all(
+      dreamCharacters.map((char) =>
+        Promise.all([
+          char.loadAndRegisterAnimation('/models/character/happy.glb', 'Happy'),
+          char.loadAndRegisterAnimation('/models/character/sad.glb', 'Sad'),
+          char.loadAndRegisterAnimation('/models/character/talk.glb', 'Talk'),
+          char.loadAndRegisterAnimation('/models/character/angry.glb', 'Angry')
+        ])
+      )
+    );
+
+    dreamCharactersLoaded = true;
+    console.log('✓ Dream characters loaded:', dreamCharacters.length);
+  } catch (e) {
+    console.warn('Dream characters failed to load', e);
+  }
+}
 
 // Initialize story cache from localStorage
 function initStoryCache() {
@@ -374,6 +430,9 @@ async function initializeApp() {
     // Initialize Dream Features
     initializeDreamFeatures();
     console.log('✓ Dream Features initialized');
+
+    // Fire-and-forget 3D character loading (does not block experience)
+    initDreamCharacter();
 
     // Start the experience
     initializeArrival();
@@ -761,6 +820,7 @@ window.requestWebcamAndBegin = async function() {
       const videoEl = document.getElementById('webcam');
       if (videoEl) {
         videoEl.srcObject = stream;
+        videoEl.style.display = 'block';
       }
       socket.emit('reader:join', {
         emotions: emotionEngine.currentEmotions,
@@ -771,6 +831,19 @@ window.requestWebcamAndBegin = async function() {
   } catch (e) {
     console.error('Webcam access denied or failed:', e);
   } finally {
+    try {
+      if (dreamCharactersLoaded && dreamCharacters && dreamCharacters.length) {
+        dreamCharacters.forEach((char, idx) => {
+          if (!char) return;
+          char.enterFrom();
+          if (idx === 0) {
+            char.speak('May I see you? I would like to read with you.');
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('Dream characters entrance failed', e);
+    }
     // Always proceed to mood selection, even if webcam fails
     transitionToReading();
   }
@@ -1032,6 +1105,21 @@ function showMoodMeterScreen(mood) {
 
 window.selectMoodAndLoadStory = async function(mood) {
   console.log(`🎯 Mood selected: ${mood}`);
+  try {
+    if (dreamCharactersLoaded && dreamCharacters && dreamCharacters.length) {
+      dreamCharacters.forEach((char) => char.setMood(mood));
+    }
+
+    // If user selects a sad mood, swap the primary character's model to dying.glb
+    if (mood === 'sad' && dreamCharactersLoaded && dreamCharacters && dreamCharacters.length) {
+      const primary = dreamCharacters[0];
+      if (primary && typeof primary.swapMainModel === 'function') {
+        primary.swapMainModel('/models/character/dying.glb');
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to set dream character mood', e);
+  }
   showMoodMeterScreen(mood);
 };
 
@@ -1083,7 +1171,7 @@ function loadStoryWithType(storyType) {
       startReading();
       return;
     }
-    
+
     // Fallback: Use hardcoded story if online fetch fails
     console.log('📚 Falling back to local story library');
     loadLocalStory(storyType);
@@ -1473,11 +1561,61 @@ function renderStory(storyText) {
   const proceedBtn = document.getElementById('proceedButton');
   if (proceedBtn) {
     proceedBtn.style.display = 'inline-block';
-    proceedBtn.onclick = () => {
+    proceedBtn.onclick = async () => {
       storyDisplay.style.display = 'block';
       proceedBtn.style.display = 'none';
+      try {
+        await characterReadStoryAloud(textArray);
+      } catch (e) {
+        console.warn('Character read-aloud failed:', e);
+      }
     };
   }
+}
+
+// Have the Dreamware character read the full story aloud after Proceed
+async function characterReadStoryAloud(parts) {
+  if (!dreamCharactersLoaded || !dreamCharacters || !dreamCharacters.length) return;
+  if (!Array.isArray(parts) || parts.length === 0) return;
+
+  try {
+    await Promise.resolve();
+  } catch (e) {}
+
+  try {
+    dreamCharacters.forEach((char) => char.setMood('reading'));
+  } catch (e) {}
+
+  const midpoint = Math.floor(parts.length / 2) || 0;
+
+  for (let i = 0; i < parts.length; i++) {
+    const raw = parts[i];
+    const baseText = String(raw || '').trim();
+    if (!baseText) continue;
+
+    let textToSpeak = baseText;
+    if (i === midpoint) {
+      textToSpeak += ' ... How are you feeling right now inside this story?';
+    }
+
+    try {
+      const speaker = dreamCharacters[0] || dreamCharacters[1] || dreamCharacters[2];
+      if (speaker) {
+        speaker.speak(textToSpeak, { rate: 1, pitch: 1 });
+      }
+    } catch (e) {
+      console.warn('Speak error:', e);
+    }
+
+    const approxMs = Math.max(1500, textToSpeak.length * 55);
+    await new Promise((r) => setTimeout(r, approxMs));
+  }
+
+  try {
+    if (dreamCharactersLoaded && dreamCharacters && dreamCharacters.length) {
+      dreamCharacters.forEach((char) => char.setMood('neutral'));
+    }
+  } catch (e) {}
 }
 
 // Generate and display mood-based story suggestions
@@ -2477,6 +2615,18 @@ function animate() {
   const deltaTime = 16;
   const time = Date.now() * 0.001;
 
+  try {
+    if (dreamCharactersLoaded && dreamCharacters && dreamCharacters.length) {
+      dreamCharacters.forEach((char) => {
+        if (!char) return;
+        char.update();
+        char.followCursor(lastCursorNorm);
+      });
+    }
+  } catch (e) {
+    // Character update failures should never break core loop
+  }
+
   // Front-page holographic title parallax
   const holo = document.getElementById('holo-title-inner');
   if (holo && appState && appState.cursorPos) {
@@ -3126,6 +3276,11 @@ function updateCharacterMoodVisuals(storyType) {
 // Preserve temporalParadoxEngine tracking
 document.addEventListener('mousemove', (e) => {
   appState.cursorPos = { x: e.clientX, y: e.clientY };
+  try {
+    const nx = (e.clientX / window.innerWidth) * 2 - 1;
+    const ny = -((e.clientY / window.innerHeight) * 2 - 1);
+    lastCursorNorm = { x: nx, y: ny };
+  } catch (e) {}
   try {
     temporalParadoxEngine.recordAction('move');
   } catch (e) {
